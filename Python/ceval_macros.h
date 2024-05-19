@@ -71,10 +71,23 @@
 #define INSTRUCTION_START(op) (frame->prev_instr = next_instr++)
 #endif
 
+typedef struct {
+    PyThreadState *tstate;
+    _PyInterpreterFrame *frame;
+    PyObject **stack_pointer;
+    _Py_CODEUNIT *next_instr;
+    int opcode;
+    int oparg;
+    PyObject *kwnames;
+} ret_state;
+
+typedef uintptr_t (*OPCODE_FUNC_PTR_TYPE)(PyThreadState *tstate, _PyInterpreterFrame *frame, PyObject **stack_pointer, _Py_CODEUNIT *next_instr, int opcode, int oparg, _PyCFrame *cframe, PyObject *kwnames, ret_state *state);
+static OPCODE_FUNC_PTR_TYPE opcode_funcs[256];
+
 #if USE_COMPUTED_GOTOS
 #  define TARGET(op) TARGET_##op: INSTRUCTION_START(op);
 #  define DISPATCH_GOTO() goto *opcode_targets[opcode]
-#else
+#elif !USE_TAIL_CALLS
 #  define TARGET(op) case op: TARGET_##op: INSTRUCTION_START(op);
 #  define DISPATCH_GOTO() goto dispatch_opcode
 #endif
@@ -109,15 +122,15 @@
         _PyFrame_SetStackPointer(frame, stack_pointer); \
         frame->prev_instr = next_instr - 1;             \
         (NEW_FRAME)->previous = frame;                  \
-        frame = cframe.current_frame = (NEW_FRAME);     \
+        frame = cframe->current_frame = (NEW_FRAME);     \
         CALL_STAT_INC(inlined_py_calls);                \
-        goto start_frame;                               \
+        CEVAL_GOTO(start_frame);                               \
     } while (0)
 
 #define CHECK_EVAL_BREAKER() \
     _Py_CHECK_EMSCRIPTEN_SIGNALS_PERIODICALLY(); \
     if (_Py_atomic_load_relaxed_int32(&tstate->interp->ceval.eval_breaker)) { \
-        goto handle_eval_breaker; \
+        CEVAL_GOTO(handle_eval_breaker); \
     }
 
 
@@ -177,6 +190,8 @@ GETITEM(PyObject *v, Py_ssize_t i) {
 
 #if USE_COMPUTED_GOTOS
 #define PREDICT(op)             if (0) goto PREDICT_ID(op)
+#elif USE_TAIL_CALLS
+#define PREDICT(op) ((void)0)
 #else
 #define PREDICT(next_op) \
     do { \
@@ -248,7 +263,12 @@ GETITEM(PyObject *v, Py_ssize_t i) {
                                      GETLOCAL(i) = value; \
                                      Py_XDECREF(tmp); } while (0)
 
-#define GO_TO_INSTRUCTION(op) goto PREDICT_ID(op)
+#if USE_TAIL_CALLS
+#  define GO_TO_INSTRUCTION(op) OPCODE_FUNC_PTR_TYPE next = opcode_funcs[op]; \
+                                return next (tstate, frame, stack_pointer, next_instr, opcode, oparg, cframe, kwnames, state);
+#else
+#  define GO_TO_INSTRUCTION(op) goto PREDICT_ID(op)
+#endif
 
 #ifdef Py_STATS
 #define UPDATE_MISS_STATS(INSTNAME)                              \
@@ -323,7 +343,7 @@ do { \
     }\
     else { \
         result = PyFloat_FromDouble(dval); \
-        if ((result) == NULL) goto error; \
+        if ((result) == NULL) CEVAL_GOTO(error); \
         _Py_DECREF_NO_DEALLOC(left); \
         _Py_DECREF_NO_DEALLOC(right); \
     } \
@@ -339,6 +359,6 @@ do { \
     stack_pointer = _PyFrame_GetStackPointer(frame); \
     if (next_instr == NULL) { \
         next_instr = (dest)+1; \
-        goto error; \
+        CEVAL_GOTO(error); \
     } \
 } while (0);

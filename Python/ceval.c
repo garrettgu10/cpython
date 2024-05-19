@@ -2,6 +2,9 @@
 
 #define _PY_INTERPRETER
 
+#define USE_COMPUTED_GOTOS 0
+#define USE_TAIL_CALLS 1
+
 #include "Python.h"
 #include "pycore_abstract.h"      // _PyIndex_Check()
 #include "pycore_call.h"          // _PyObject_FastCallDictTstate()
@@ -650,6 +653,11 @@ static inline void _Py_LeaveRecursiveCallPy(PyThreadState *tstate)  {
  * so consume 3 units of C stack */
 #define PY_EVAL_C_STACK_UNITS 2
 
+#if USE_TAIL_CALLS
+#include "tail_call_funcs.h"
+#include "opcode_funcs.h"
+#endif
+
 PyObject* _Py_HOT_FUNCTION
 _PyEval_EvalFrameDefault(PyThreadState *tstate, _PyInterpreterFrame *frame, int throwflag)
 {
@@ -767,6 +775,10 @@ resume_frame:
     assert(!_PyErr_Occurred(tstate));
 #endif
 
+#if USE_TAIL_CALLS
+    ret_state s;
+#endif
+
     DISPATCH();
 
 handle_eval_breaker:
@@ -837,6 +849,7 @@ handle_eval_breaker:
     DISPATCH();
 
     {
+#if !USE_TAIL_CALLS
     /* Start instructions */
 #if !USE_COMPUTED_GOTOS
     dispatch_opcode:
@@ -897,6 +910,7 @@ handle_eval_breaker:
             goto error;
 
         } /* End instructions */
+#endif
 
         /* This should never be reached. Every opcode should end with DISPATCH()
            or goto error. */

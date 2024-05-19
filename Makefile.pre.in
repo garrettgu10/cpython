@@ -1560,6 +1560,8 @@ Python/compile.o: $(srcdir)/Python/opcode_metadata.h
 
 Python/ceval.o: \
 		$(srcdir)/Python/ceval_macros.h \
+		$(srcdir)/Python/tail_call_funcs.h \
+		$(srcdir)/Python/opcode_funcs.h \
 		$(srcdir)/Python/condvar.h \
 		$(srcdir)/Python/generated_cases.c.h \
 		$(srcdir)/Python/opcode_metadata.h \

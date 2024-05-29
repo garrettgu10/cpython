@@ -427,7 +427,7 @@ class EmscriptenTarget(enum.Enum):
             # some libs come in debug and non-debug builds
             return ["-O0"]
         else:
-            return ["-O2"]
+            return ["-O3"]
 
 
 class SupportLevel(enum.Enum):

@@ -70,9 +70,24 @@
 #define INSTRUCTION_STATS(op) ((void)0)
 #endif
 
+typedef struct {
+    PyThreadState *tstate;
+    _PyInterpreterFrame *frame;
+    PyObject **stack_pointer;
+    _Py_CODEUNIT *next_instr;
+    int opcode;
+    int oparg;
+} ret_state;
+
+typedef uintptr_t (*OPCODE_FUNC_PTR_TYPE)(PyThreadState *tstate, _PyInterpreterFrame *frame, PyObject **stack_pointer, _Py_CODEUNIT *next_instr, int opcode, int oparg, ret_state *state);
+static OPCODE_FUNC_PTR_TYPE opcode_funcs[256];
+
 #if USE_COMPUTED_GOTOS
 #  define TARGET(op) TARGET_##op:
 #  define DISPATCH_GOTO() goto *opcode_targets[opcode]
+#elif USE_TAIL_CALLS
+#  define DISPATCH_GOTO() OPCODE_FUNC_PTR_TYPE next = opcode_funcs[opcode]; \
+                          __attribute__((musttail)) return next(tstate, frame, stack_pointer, next_instr, opcode, oparg, state)
 #else
 #  define TARGET(op) case op: TARGET_##op:
 #  define DISPATCH_GOTO() goto dispatch_opcode
@@ -127,11 +142,11 @@ do { \
         (NEW_FRAME)->previous = frame;                  \
         frame = tstate->current_frame = (NEW_FRAME);     \
         CALL_STAT_INC(inlined_py_calls);                \
-        goto start_frame;                               \
+        CEVAL_GOTO(start_frame);                               \
     } while (0)
 
 // Use this instead of 'goto error' so Tier 2 can go to a different label
-#define GOTO_ERROR(LABEL) goto LABEL
+#define GOTO_ERROR(LABEL) CEVAL_GOTO(LABEL)
 
 #define CHECK_EVAL_BREAKER() \
     _Py_CHECK_EMSCRIPTEN_SIGNALS_PERIODICALLY(); \
@@ -266,7 +281,13 @@ GETITEM(PyObject *v, Py_ssize_t i) {
                                      GETLOCAL(i) = value; \
                                      Py_XDECREF(tmp); } while (0)
 
-#define GO_TO_INSTRUCTION(op) goto PREDICT_ID(op)
+#if USE_TAIL_CALLS
+#  define GO_TO_INSTRUCTION(OP, SUB) OPCODE_FUNC_PTR_TYPE next = opcode_funcs[OP]; \
+                                     next_instr -= SUB; \
+                                     __attribute__((musttail)) return next(tstate, frame, stack_pointer, next_instr, opcode, oparg, state)
+#else
+#  define GO_TO_INSTRUCTION(op) goto PREDICT_ID(op)
+#endif
 
 #ifdef Py_STATS
 #define UPDATE_MISS_STATS(INSTNAME)                              \
@@ -282,12 +303,12 @@ GETITEM(PyObject *v, Py_ssize_t i) {
 #define UPDATE_MISS_STATS(INSTNAME) ((void)0)
 #endif
 
-#define DEOPT_IF(COND, INSTNAME)                            \
+#define DEOPT_IF(COND, INSTNAME, SUB)                            \
     if ((COND)) {                                           \
         /* This is only a single jump on release builds! */ \
         UPDATE_MISS_STATS((INSTNAME));                      \
         assert(_PyOpcode_Deopt[opcode] == (INSTNAME));      \
-        GO_TO_INSTRUCTION(INSTNAME);                        \
+        GO_TO_INSTRUCTION(INSTNAME, SUB);                        \
     }
 
 
@@ -366,7 +387,7 @@ do { \
         stack_pointer = _PyFrame_GetStackPointer(frame); \
         if (next_instr == NULL) { \
             next_instr = (dest)+1; \
-            goto error; \
+            CEVAL_GOTO(error); \
         } \
     } \
 } while (0);

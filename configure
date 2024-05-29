@@ -9458,6 +9458,8 @@ fi
 case $ac_sys_system in #(
   Emscripten) :
 
+as_fn_append CFLAGS " -mtail-call"
+
             if test "x$Py_DEBUG" = xyes
 then :
   wasm_debug=yes
@@ -9559,6 +9561,7 @@ then :
       as_fn_append LDFLAGS_NODIST " -Wl,--max-memory=10485760"
 
 fi
+as_fn_append CFLAGS " -mtail-call"
 
                 as_fn_append LDFLAGS_NODIST " -z stack-size=8388608 -Wl,--stack-first -Wl,--initial-memory=20971520"
 

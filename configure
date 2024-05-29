@@ -9458,6 +9458,8 @@ fi
 case $ac_sys_system in #(
   Emscripten) :
 
+as_fn_append CFLAGS " -mtail-call"
+
             if test "x$Py_DEBUG" = xyes
 then :
   wasm_debug=yes

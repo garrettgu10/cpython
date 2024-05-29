@@ -284,7 +284,7 @@ GETITEM(PyObject *v, Py_ssize_t i) {
 #if USE_TAIL_CALLS
 #  define GO_TO_INSTRUCTION(OP, SUB) OPCODE_FUNC_PTR_TYPE next = opcode_funcs[OP]; \
                                      next_instr -= SUB; \
-                                     return next(tstate, frame, stack_pointer, next_instr, opcode, oparg, state)
+                                     __attribute__((musttail)) return next(tstate, frame, stack_pointer, next_instr, opcode, oparg, state)
 #else
 #  define GO_TO_INSTRUCTION(op) goto PREDICT_ID(op)
 #endif
